@@ -7,8 +7,10 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from os import listdir
 from os.path import isfile, join, exists
 import re
+# from flask import Flask
 
 matplotlib.use('TkAgg')
+# app = Flask(__name__)
 
 
 class MainClass:
@@ -30,7 +32,7 @@ class MainClass:
     def init_plot(self):
         self.fig = plt.Figure(figsize=(12, 6))
 
-        self.a = self.fig.add_subplot(121)
+        self.a = self.fig.add_subplot(131)
         self.a.set_xlim(0, 18000)
         self.a.set_ylim(0, 200)
         self.a.set_xlabel("RPM")
@@ -41,7 +43,8 @@ class MainClass:
         self.power_2, = self.a.plot([], [], 'b-')
         self.torque_2, = self.a.plot([], [], 'b--')
 
-        self.b = self.fig.add_subplot(122)
+
+        self.b = self.fig.add_subplot(132)
         self.b.set_xlim(0, 180)
         self.b.set_ylim(0, 1.8)
         self.b.set_xlabel("Speed (mph)")
@@ -54,6 +57,7 @@ class MainClass:
         self.thrust_1_4, = self.b.plot([], [], 'r-')
         self.thrust_1_5, = self.b.plot([], [], 'r-')
         self.thrust_1_6, = self.b.plot([], [], 'r-')
+        self.thrust_1_7, = self.b.plot([], [], 'k--')
 
         self.thrust_2_1, = self.b.plot([], [], 'b-')
         self.thrust_2_2, = self.b.plot([], [], 'b-')
@@ -61,9 +65,21 @@ class MainClass:
         self.thrust_2_4, = self.b.plot([], [], 'b-')
         self.thrust_2_5, = self.b.plot([], [], 'b-')
         self.thrust_2_6, = self.b.plot([], [], 'b-')
+        self.thrust_2_7, = self.b.plot([], [], 'k--')
 
         self.power_wheelies, = self.b.plot(range(200), 200 * [1], 'k:')
         self.power_wheelies.set_label("Power Wheelie Line")
+
+
+        self.c = self.fig.add_subplot(133)
+        self.c.set_xlim(0, 10)
+        self.c.set_ylim(0, 180)
+        self.c.set_xlabel("Time (s)")
+        self.c.set_ylabel("Speed (mph)")
+        self.c.set_title("Drag Race")
+
+        self.race_1, = self.c.plot([], [], 'r-')
+        self.race_2, = self.c.plot([], [], 'b-')
 
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.window)
         self.canvas.draw()
@@ -134,19 +150,54 @@ class MainClass:
                         drag_force = 0.5 * 1.293 * speed ** 2 * specs.loc[0, "drag"] * 0.04493
                         drag_thrust = drag_force / (rider_mass + specs.loc[0, "mass"])
                         thrust_df.at[speed, gear] = engine_thrust - drag_thrust
+            thrust_df.insert(6, 6, thrust_df.max(axis = 1))
 
             return thrust_df
         else:
             thrust_df = pd.DataFrame(
                 index=range(0, 200, 1),
-                columns=range(6)
+                columns=range(7)
             )
             return thrust_df
+    
+    def build_race(self, thrust_df):
+        race_df = pd.DataFrame(
+            columns = ["time", "velocity"]
+        )
+        time_total = 10
+        resolution = 100
+        for t in range(time_total * resolution):
+            time = t / resolution
+            if(t == 0):
+                race_df.at[t, "time"] = time
+                race_df.at[t, "velocity"] = 0
+                old_vel = 0
+                new_vel = 0
+            else:
+                old_vel = new_vel
+
+                if(old_vel < thrust_df.index.array[2]):
+                    accel = thrust_df.iat[2, 6]
+                    print(thrust_df[6])
+                elif(old_vel > thrust_df.index.array[-1]):
+                    accel = 0
+                else:
+                    accel = np.interp(old_vel, thrust_df.index.values, thrust_df[6].tolist())
+
+                new_vel = old_vel + (accel / resolution) / 0.02194
+                race_df.at[t, "velocity"] = new_vel
+                race_df.at[t, "time"] = time
+        print(race_df)
+        return race_df
+
+
+
 
     def plot_button_1_pressed(self):
         filename = self.bikes[self.dd_1_value.get()]
         self.dyno_df_1 = self.get_dyno(filename)
         self.thrust_df_1 = self.build_thrust(filename)
+        self.race_df_1 = self.build_race(self.thrust_df_1)
 
         self.power_1.set_data(self.dyno_df_1["rpm"], self.dyno_df_1["hp"])
         self.torque_1.set_data(self.dyno_df_1["rpm"], self.dyno_df_1["torque"])
@@ -159,10 +210,15 @@ class MainClass:
         self.thrust_1_4.set_data(self.thrust_df_1.index, self.thrust_df_1[3])
         self.thrust_1_5.set_data(self.thrust_df_1.index, self.thrust_df_1[4])
         self.thrust_1_6.set_data(self.thrust_df_1.index, self.thrust_df_1[5])
+        self.thrust_1_7.set_data(self.thrust_df_1.index, self.thrust_df_1[6])
         self.thrust_1_1.set_label(self.dd_1_value.get())
+
+        self.race_1.set_data(self.race_df_1["time"], self.race_df_1["velocity"])
+        self.race_1.set_label(self.dd_1_value.get())
 
         self.a.legend()
         self.b.legend()
+        self.c.legend()
         self.canvas.draw()
 
     def clear_plot_button_1_pressed(self):
@@ -175,6 +231,9 @@ class MainClass:
         self.thrust_1_4.set_data([], [])
         self.thrust_1_5.set_data([], [])
         self.thrust_1_6.set_data([], [])
+        self.thrust_1_7.set_data([], [])
+        
+        self.race_1.set_data([], [])
 
         self.canvas.draw()
 
@@ -182,6 +241,7 @@ class MainClass:
         filename = self.bikes[self.dd_2_value.get()]
         self.dyno_df_2 = self.get_dyno(filename)
         self.thrust_df_2 = self.build_thrust(filename)
+        self.race_df_2 = self.build_race(self.thrust_df_2)
 
         self.power_2.set_data(self.dyno_df_2["rpm"], self.dyno_df_2["hp"])
         self.torque_2.set_data(self.dyno_df_2["rpm"], self.dyno_df_2["torque"])
@@ -194,10 +254,15 @@ class MainClass:
         self.thrust_2_4.set_data(self.thrust_df_2.index, self.thrust_df_2[3])
         self.thrust_2_5.set_data(self.thrust_df_2.index, self.thrust_df_2[4])
         self.thrust_2_6.set_data(self.thrust_df_2.index, self.thrust_df_2[5])
+        self.thrust_2_7.set_data(self.thrust_df_2.index, self.thrust_df_2[6])
         self.thrust_2_1.set_label(self.dd_2_value.get())
+
+        self.race_2.set_data(self.race_df_2["time"], self.race_df_2["velocity"])
+        self.race_2.set_label(self.dd_2_value.get())
 
         self.a.legend()
         self.b.legend()
+        self.c.legend()
         self.canvas.draw()
 
     def clear_plot_button_2_pressed(self):
@@ -210,9 +275,14 @@ class MainClass:
         self.thrust_2_4.set_data([], [])
         self.thrust_2_5.set_data([], [])
         self.thrust_2_6.set_data([], [])
+        self.thrust_2_7.set_data([], [])
+
+        self.race_2.set_data([], [])
 
         self.canvas.draw()
 
+# @app.route("/")
+# def main():
 
 if __name__ == "__main__":
     window = Tk()
